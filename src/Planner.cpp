@@ -1,27 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
 
-#include "value_iteration2/Planner.h"
-
-#include <geometry_msgs/msg/pose_stamped.hpp>
+#include "simple_nav/Planner.hpp"
 
 #include <algorithm>
+#include <cmath>
 
-namespace value_iteration2
+namespace a_star_planner
 {
 
-vi_planner::vi_planner(const rclcpp::NodeOptions & options) : Node("vi_planner", options)
+AStarPlanner::AStarPlanner(const rclcpp::NodeOptions & options) : Node("a_star_planner", options)
 {
-  RCLCPP_INFO(this->get_logger(), "vi_planner initialize start!");
+  RCLCPP_INFO(this->get_logger(), "A* Planner initialize start!");
   getParam();
 
   initPublisher();
   initSubscriber();
   initServiceServer();
-  //initServiceClient();
-  RCLCPP_INFO(this->get_logger(), "vi_planner initialize done!");
-  //getCostMap2D();
+  RCLCPP_INFO(this->get_logger(), "A* Planner initialize done!");
 }
 
-void vi_planner::getParam()
+void AStarPlanner::getParam()
 {
   this->declare_parameter("use_dijkstra", false);
   this->declare_parameter("publish_searched_map", false);
@@ -36,7 +34,7 @@ void vi_planner::getParam()
   this->get_parameter("iteration_delta_threshold", iteration_delta_threshold_);
 }
 
-void vi_planner::initPublisher()
+void AStarPlanner::initPublisher()
 {
   search_map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
     "Planner_searched_map", rclcpp::QoS(1).reliable());
@@ -44,12 +42,10 @@ void vi_planner::initPublisher()
     this->create_publisher<nav_msgs::msg::Path>("plan_path", rclcpp::QoS(1).reliable());
 }
 
-void vi_planner::initSubscriber()
+void AStarPlanner::initSubscriber()
 {
   auto costmap_2d_callback = [this](const nav_msgs::msg::OccupancyGrid::UniquePtr msg) {
-    // RCLCPP_INFO(
-    //   this->get_logger(), "Subscribed message at address: %p", static_cast<void *>(msg.get()));
-    RCLCPP_INFO(this->get_logger(), "vi_planner get topic!");
+    RCLCPP_INFO(this->get_logger(), "A* Planner received costmap!");
     this->obstacle_map_ = *msg;
     initPlanner();
   };
@@ -59,18 +55,17 @@ void vi_planner::initSubscriber()
   costmap_2d_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
     "/costmap_2d", 2, costmap_2d_callback, options);
 
-  RCLCPP_INFO(this->get_logger(), "set subscriver!");
+  RCLCPP_INFO(this->get_logger(), "Subscriber created!");
 }
 
-void vi_planner::initServiceServer()
+void AStarPlanner::initServiceServer()
 {
   auto get_path = [&](
                     const std::shared_ptr<rmw_request_id_t> request_header,
                     const std::shared_ptr<value_iteration2_astar_msgs::srv::GetPath_Request> request,
                     std::shared_ptr<value_iteration2_astar_msgs::srv::GetPath_Response> response) -> void {
     (void)request_header;
-    // clang-format off
-    RCLCPP_INFO(this->get_logger(), "vi_planner planning start");
+    RCLCPP_INFO(this->get_logger(), "A* Planner planning start");
     search_map_ = obstacle_map_;
     request->start.pose.position.x -= obstacle_map_.info.origin.position.x;
     request->start.pose.position.y -= obstacle_map_.info.origin.position.y;
@@ -87,23 +82,16 @@ void vi_planner::initServiceServer()
       i.pose.position.y += obstacle_map_.info.origin.position.y;
       RCLCPP_INFO(this->get_logger(), "path x:%lf, y:%lf",i.pose.position.x, i.pose.position.y);
     }
-    RCLCPP_INFO(this->get_logger(), "vi_planner planning done");
+    RCLCPP_INFO(this->get_logger(), "A* Planner planning done");
     initPlanner(); 
   };
   get_path_srv_ = create_service<value_iteration2_astar_msgs::srv::GetPath>("get_path", get_path);
-  RCLCPP_INFO(this->get_logger(), "set service sever!");
-
+  RCLCPP_INFO(this->get_logger(), "Service server created!");
 }
 
-/*void vi_planner::initServiceClient()
+void AStarPlanner::initPlanner()
 {
-  get_costmap_2d_map_srv_client_ =
-    this->create_client<value_iteration2_astar_msgs::srv::GetCostMap2D>("get_costmap_2d");
-}*/
-
-void vi_planner::initPlanner()
-{
-  RCLCPP_INFO(this->get_logger(), "vi_planner map setting start");
+  RCLCPP_INFO(this->get_logger(), "A* Planner map setting start");
   resolution_ = obstacle_map_.info.resolution;
   robot_radius_ = 0.1;
   min_x_ = min_y_ = 0;
@@ -111,10 +99,10 @@ void vi_planner::initPlanner()
   max_y_ = y_width_ = obstacle_map_.info.height;
   motion_ = getMotionModel();
   search_map_ = obstacle_map_;
-  RCLCPP_INFO(this->get_logger(), "vi_planner map setting done");
+  RCLCPP_INFO(this->get_logger(), "A* Planner map setting done");
 }
 
-std::vector<std::tuple<int32_t, int32_t, uint8_t>> vi_planner::getMotionModel()
+std::vector<std::tuple<int32_t, int32_t, uint8_t>> AStarPlanner::getMotionModel()
 {
   // dx, dy, cost
   return std::vector<std::tuple<int32_t, int32_t, uint8_t>>{
@@ -128,14 +116,14 @@ std::vector<std::tuple<int32_t, int32_t, uint8_t>> vi_planner::getMotionModel()
     {1, 1, std::sqrt(2)}};
 }
 
-nav_msgs::msg::Path vi_planner::planning(double sx, double sy, double gx, double gy)
+nav_msgs::msg::Path AStarPlanner::planning(double sx, double sy, double gx, double gy)
 {
   RCLCPP_INFO(this->get_logger(), "start x:%lf y:%lf, goal x:%lf y:%lf", sx,sy,gx,gy);
   RCLCPP_INFO(this->get_logger(), "hight:%lf width:%lf", resolution_*x_width_, resolution_*y_width_);
-  auto start_node = value_iteration2::Node(calcXYIndex(sx), calcXYIndex(sy), 0.0, -1);
-  auto goal_node = value_iteration2::Node(calcXYIndex(gx), calcXYIndex(gy), 0.0, -1);
+  auto start_node = a_star_planner::Node(calcXYIndex(sx), calcXYIndex(sy), 0.0, -1);
+  auto goal_node = a_star_planner::Node(calcXYIndex(gx), calcXYIndex(gy), 0.0, -1);
 
-  std::map<uint32_t, value_iteration2::Node> open_set, closed_set;
+  std::map<uint32_t, a_star_planner::Node> open_set, closed_set;
   open_set.insert(std::make_pair(calcGridIndex(start_node), start_node));
 
   //search_map_ = obstacle_map_;
@@ -154,7 +142,7 @@ nav_msgs::msg::Path vi_planner::planning(double sx, double sy, double gx, double
       for (auto id_node_map : open_set) {
 	      id_cost_map.insert(std::make_pair(
 	        id_node_map.first, open_set[id_node_map.first].cost 
-            + calcHeurisic(goal_node, static_cast<value_iteration2::Node>(open_set[id_node_map.first]))));
+            + calcHeurisic(goal_node, static_cast<a_star_planner::Node>(open_set[id_node_map.first]))));
       }
 
       return std::min_element(
@@ -179,7 +167,7 @@ nav_msgs::msg::Path vi_planner::planning(double sx, double sy, double gx, double
     closed_set.insert(std::make_pair(c_id, current));
 
     for (size_t i = 0; i < motion_.size(); ++i) {
-      auto node = value_iteration2::Node(
+      auto node = a_star_planner::Node(
         current.x + std::get<0>(motion_[i]), current.y + std::get<1>(motion_[i]),
         current.cost + std::get<2>(motion_[i]), c_id);
 
@@ -201,8 +189,8 @@ nav_msgs::msg::Path vi_planner::planning(double sx, double sy, double gx, double
   return calcFinalPath(goal_node, closed_set);
 }
 
-nav_msgs::msg::Path vi_planner::calcFinalPath(
-  value_iteration2::Node goal_node, std::map<uint32_t, value_iteration2::Node> closed_set)
+nav_msgs::msg::Path AStarPlanner::calcFinalPath(
+  a_star_planner::Node goal_node, std::map<uint32_t, a_star_planner::Node> closed_set)
 {
   std::vector<double> rx, ry;
   rx.push_back(calcGridPosition(goal_node.x));
@@ -235,13 +223,13 @@ nav_msgs::msg::Path vi_planner::calcFinalPath(
   return plan_path;
 }
 
-void vi_planner::smoothPath(nav_msgs::msg::Path & path)
+void AStarPlanner::smoothPath(nav_msgs::msg::Path & path)
 {
   auto smoothed_path = smoothOptimization(path);
   path = smoothed_path;
 }
 
-nav_msgs::msg::Path vi_planner::smoothOptimization(nav_msgs::msg::Path & path)
+nav_msgs::msg::Path AStarPlanner::smoothOptimization(nav_msgs::msg::Path & path)
 {
   auto new_path = path;
   auto delta = iteration_delta_threshold_;
@@ -262,7 +250,7 @@ nav_msgs::msg::Path vi_planner::smoothOptimization(nav_msgs::msg::Path & path)
   return new_path;
 }
 
-double vi_planner::calcNewPositionXY(
+double AStarPlanner::calcNewPositionXY(
   double & delta, double original_data, double smoothed_data, double smoothed_prev_data,
   double smoothed_next_data)
 {
@@ -276,9 +264,9 @@ double vi_planner::calcNewPositionXY(
   return smoothed_data;
 }
 
-double vi_planner::calcGridPosition(uint32_t node_position) { return node_position * resolution_; }
+double AStarPlanner::calcGridPosition(uint32_t node_position) { return node_position * resolution_; }
 
-bool vi_planner::verifyNode(value_iteration2::Node node)
+bool AStarPlanner::verifyNode(a_star_planner::Node node)
 {
   if (node.x < min_x_)
     return false;
@@ -301,7 +289,7 @@ bool vi_planner::verifyNode(value_iteration2::Node node)
   return true;
 }
 
-double vi_planner::calcHeurisic(value_iteration2::Node node1, value_iteration2::Node node2)
+double AStarPlanner::calcHeurisic(a_star_planner::Node node1, a_star_planner::Node node2)
 {
   auto w = 1.0;
   double d = w * std::hypot(
@@ -315,43 +303,22 @@ double vi_planner::calcHeurisic(value_iteration2::Node node1, value_iteration2::
   return d;
 }
 
-uint32_t vi_planner::calcXYIndex(double position)
+uint32_t AStarPlanner::calcXYIndex(double position)
 {
   return static_cast<uint32_t>(std::round(position / resolution_));
 }
 
-uint32_t vi_planner::calcGridIndex(value_iteration2::Node node) { return node.y * x_width_ + node.x; }
+uint32_t AStarPlanner::calcGridIndex(a_star_planner::Node node) { return node.y * x_width_ + node.x; }
 
-/*
-void vi_planner::getCostMap2D()
+}  // namespace a_star_planner
+
+int main(int argc, char ** argv)
 {
-  while (!get_costmap_2d_map_srv_client_->wait_for_service(std::chrono::seconds(1))) {
-    if (!rclcpp::ok()) {
-      RCLCPP_ERROR(this->get_logger(), "client interrupted while waiting for service to appear.");
-    }
-    RCLCPP_INFO(this->get_logger(), "waiting for service to appear...");
-  }
-
-  auto request = std::make_shared<ike_nav_msgs::srv::GetCostMap2D::Request>();
-  using ServiceResponseFuture = rclcpp::Client<ike_nav_msgs::srv::GetCostMap2D>::SharedFuture;
-
-  auto response_received_callback = [this](ServiceResponseFuture future) {
-    auto result = future.get();
-    obstacle_map_ = result.get()->costmap_2d;
-    initPlanner();
-  };
-  auto future_result =
-    get_costmap_2d_map_srv_client_->async_send_request(request, response_received_callback);
-}*/
-
-}  // namespace value_iteration2
-
-int main(int argc, char **argv)
-{
-	rclcpp::init(argc,argv);
+  rclcpp::init(argc, argv);
   rclcpp::NodeOptions opt;
-	auto node = std::make_shared<value_iteration2::vi_planner>(opt);
-	rclcpp::spin(node);
-	return 0;
+  auto node = std::make_shared<a_star_planner::AStarPlanner>(opt);
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+  return 0;
 }
 

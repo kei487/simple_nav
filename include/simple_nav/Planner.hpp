@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef VALUE_ITERATION_PLANNER_H__
-#define VALUE_ITERATION_PLANNER_H__
-
-// #include "ike_planner_parameter/ike_planner_parameter.hpp"
+#ifndef A_STAR_PLANNER_HPP__
+#define A_STAR_PLANNER_HPP__
 
 #include <rclcpp/rclcpp.hpp>
-
-//#include "ike_nav_msgs/srv/get_cost_map2_d.hpp"
-//#include "value_iteration2/planner_param.hpp"
-#include "value_iteration2_astar_msgs/srv/get_path.hpp"
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include "value_iteration2_astar_msgs/srv/get_path.hpp"
 
-namespace value_iteration2
+#include <map>
+#include <vector>
+#include <tuple>
+
+namespace a_star_planner
 {
 struct Node
 {
@@ -29,10 +29,10 @@ struct Node
   }
 };
 
-class vi_planner : public rclcpp::Node
+class AStarPlanner : public rclcpp::Node
 {
 public:
-  explicit vi_planner(const rclcpp::NodeOptions & options);
+  explicit AStarPlanner(const rclcpp::NodeOptions & options);
 
 protected:
   void getParam();
@@ -50,11 +50,11 @@ protected:
 
   nav_msgs::msg::Path planning(double sx, double sy, double gx, double gy);
   uint32_t calcXYIndex(double positio);
-  uint32_t calcGridIndex(value_iteration2::Node node);
-  double calcHeurisic(value_iteration2::Node node1, value_iteration2::Node node2);
-  bool verifyNode(value_iteration2::Node node);
+  uint32_t calcGridIndex(a_star_planner::Node node);
+  double calcHeurisic(a_star_planner::Node node1, a_star_planner::Node node2);
+  bool verifyNode(a_star_planner::Node node);
   nav_msgs::msg::Path calcFinalPath(
-    value_iteration2::Node goal_node, std::map<uint32_t, value_iteration2::Node> closed_set);
+    a_star_planner::Node goal_node, std::map<uint32_t, a_star_planner::Node> closed_set);
   double calcGridPosition(uint32_t goal_node_position);
 
   void smoothPath(nav_msgs::msg::Path & path);
@@ -84,6 +84,6 @@ private:
   double max_smooth_path_iteration_;
 };
 
-}  // namespace value_iteration2
+}  // namespace a_star_planner
 
-#endif  // VALUE_ITERATION_PLANNER_H__
+#endif  // A_STAR_PLANNER_HPP__

@@ -7,7 +7,7 @@ ROS 2 Humbleで動作する差動2輪ロボット用のPure Pursuitアルゴリ�
 このパッケージには以下のコンポーネントが含まれています：
 
 1. **Pure Pursuit Controller** (`pure_pursuit_controller`) - 経路追従コントローラー
-2. **Path Planner** (`vi_planner`) - A*ベースの経路計画ノード
+2. **A* Path Planner** (`a_star_planner`) - A*ベースの経路計画ノード
 
 ## Pure Pursuit Controller
 
@@ -71,13 +71,27 @@ source install/setup.bash
 
 ## 実行方法
 
-### 1. Pure Pursuit Controllerの起動
+### 1. A* Path Plannerの起動
+
+まず、経路計画ノードを起動します：
+
+```bash
+ros2 run simple_nav a_star_planner
+```
+
+このノードは以下が必要です：
+- `/costmap_2d` トピック（OccupancyGrid）から地図情報を受信
+- `/get_path` サービスで経路計画を提供
+
+### 2. Pure Pursuit Controllerの起動
+
+次に、経路追従コントローラーを起動します：
 
 ```bash
 ros2 run simple_nav pure_pursuit_controller
 ```
 
-### 2. パラメータをカスタマイズして起動
+### 3. パラメータをカスタマイズして起動
 
 ```bash
 ros2 run simple_nav pure_pursuit_controller --ros-args \
@@ -86,7 +100,7 @@ ros2 run simple_nav pure_pursuit_controller --ros-args \
   -p control_frequency:=30.0
 ```
 
-### 3. パラメータファイルを使用して起動
+### 4. パラメータファイルを使用して起動
 
 パラメータファイル `config/pure_pursuit_params.yaml` を作成：
 

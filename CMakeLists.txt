@@ -36,9 +36,22 @@ ament_target_dependencies(pure_pursuit_controller
   value_iteration2_astar_msgs
 )
 
+# A* Path Planner executable
+add_executable(a_star_planner
+  src/Planner.cpp
+)
+
+ament_target_dependencies(a_star_planner
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  value_iteration2_astar_msgs
+)
+
 # Install executables
 install(TARGETS
   pure_pursuit_controller
+  a_star_planner
   DESTINATION lib/${PROJECT_NAME}
 )
 

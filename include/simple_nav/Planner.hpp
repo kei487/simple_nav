@@ -82,7 +82,8 @@ private:
 
   // todo
   double max_smooth_path_iteration_;
-};
+  bool is_map_setting_;
+  };
 
 }  // namespace a_star_planner
 

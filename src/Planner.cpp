@@ -93,12 +93,14 @@ void AStarPlanner::initPlanner()
 {
   RCLCPP_INFO(this->get_logger(), "A* Planner map setting start");
   resolution_ = obstacle_map_.info.resolution;
-  robot_radius_ = 0.1;
+  robot_radius_ = 0.5;
   min_x_ = min_y_ = 0;
   max_x_ = x_width_ = obstacle_map_.info.width;
   max_y_ = y_width_ = obstacle_map_.info.height;
   motion_ = getMotionModel();
   search_map_ = obstacle_map_;
+
+  is_map_setting_ = true;
   RCLCPP_INFO(this->get_logger(), "A* Planner map setting done");
 }
 
@@ -118,6 +120,11 @@ std::vector<std::tuple<int32_t, int32_t, uint8_t>> AStarPlanner::getMotionModel(
 
 nav_msgs::msg::Path AStarPlanner::planning(double sx, double sy, double gx, double gy)
 {
+  if (!is_map_setting_) {
+    RCLCPP_ERROR(this->get_logger(), "Map is not set");
+    return nav_msgs::msg::Path();
+  }
+
   RCLCPP_INFO(this->get_logger(), "start x:%lf y:%lf, goal x:%lf y:%lf", sx,sy,gx,gy);
   RCLCPP_INFO(this->get_logger(), "hight:%lf width:%lf", resolution_*x_width_, resolution_*y_width_);
   auto start_node = a_star_planner::Node(calcXYIndex(sx), calcXYIndex(sy), 0.0, -1);

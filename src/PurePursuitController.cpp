@@ -291,14 +291,18 @@ bool PurePursuitController::findLookaheadPoint(
   bool found = false;
 
   // Search for point closest to lookahead distance
-  for (size_t i = 0; i < current_path_.poses.size(); ++i) {
+  for (size_t i = current_path_.poses.size() - 1; i > 0 ; --i) {
     const auto & path_point = current_path_.poses[i].pose.position;
     
     double dx = path_point.x - current_pose.pose.position.x;
     double dy = path_point.y - current_pose.pose.position.y;
     double dist = std::sqrt(dx * dx + dy * dy);
 
-    double dist_diff = std::abs(dist - lookahead_distance_);
+    double dist_diff = dist - lookahead_distance_;
+
+    if(dist_diff < 0) {
+      break;
+    }
     
     if (dist_diff < min_dist_diff && dist >= lookahead_distance_ - tolerance) {
       min_dist_diff = dist_diff;

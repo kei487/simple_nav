@@ -1,13 +1,13 @@
-# Simple Nav - ROS 2 Pure Pursuit Controller
+# Simple Nav - ROS 2 A\* Planner & Pure Pursuit Controller
 
-ROS 2 Humbleで動作する差動2輪ロボット用のPure Pursuitアルゴリズムベースの経路追従コントローラー
+ROS 2 Humbleで動作する差動2輪ロボット用の経路計画/経路追従パッケージ
 
 ## 概要
 
 このパッケージには以下のコンポーネントが含まれています：
 
 1. **Pure Pursuit Controller** (`pure_pursuit_controller`) - 経路追従コントローラー
-2. **A* Path Planner** (`a_star_planner`) - A*ベースの経路計画ノード
+2. **A\* Path Planner** (`a_star_planner`) - A\*ベースの経路計画ノード
 
 ## Pure Pursuit Controller
 

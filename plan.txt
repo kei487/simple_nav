@@ -1,0 +1,439 @@
+================================================================================
+ROS 2 Pure Pursuit Controller 実装計画書
+================================================================================
+
+【1. タスク概要】
+---
+ROS 2 Humble上で動作する差動2輪ロボット用のPure Pursuitアルゴリズムベースの
+経路追従コントローラーを実装する。
+
+既存の経路計画ノード（vi_planner）が提供する /get_path サービスを利用し、
+受信した経路に対してPure Pursuitアルゴリズムで追従制御を行う。
+
+
+【2. 技術スタック】
+---
+- ROS 2 Humble
+- C++17
+- rclcpp (ROS 2 C++ API)
+- TF2 (座標変換ライブラリ)
+- 既存メッセージ型:
+  * geometry_msgs (PoseStamped, Twist, PointStamped)
+  * nav_msgs (Path)
+  * value_iteration2_astar_msgs::srv::GetPath (カスタムサービス)
+
+
+【3. 主要な要件と制約】
+---
+[機能要件]
+- /goal_pose トピックからゴール地点を受信
+- TFから現在のロボット位置を取得（map -> base_link）
+- /get_path サービスを呼び出して経路を取得
+- Pure Pursuitアルゴリズムで速度指令（cmd_vel）を計算・配信
+- 3つの状態（IDLE, PLANNING, NAVIGATING）を管理
+- ゴール到達判定とナビゲーション終了処理
+
+[非機能要件]
+- 制御周波数: 20Hz（パラメータで変更可能）
+- TF取得のタイムアウト処理
+- サービス呼び出しの非同期処理
+- 可視化機能（current_path, lookahead_point）
+
+[制約条件]
+- 差動2輪ロボット向け（linear.x と angular.z のみ使用）
+- TFツリー（map -> odom -> base_link）が正しく配信されていること
+- 経路計画サービスが実行中であること
+
+
+【4. 潜在的な課題】
+---
+1. TF取得の失敗・タイムアウト処理
+2. サービス呼び出しの非同期処理と状態管理
+3. Pure Pursuitアルゴリズムの先行点探索の最適化
+4. 経路の端点付近での制御の安定性
+5. ロボット座標系への座標変換の正確性
+6. 制御ループと非同期処理の競合管理
+7. CMakeLists.txt と package.xml の適切な依存関係設定
+
+
+【5. 実装ステップと実行順序】
+---
+
+■ステップ1: プロジェクト構成の準備
+  [1-1] package.xml に必要な依存関係を追加
+        - rclcpp
+        - geometry_msgs
+        - nav_msgs
+        - tf2
+        - tf2_ros
+        - tf2_geometry_msgs
+        - value_iteration2_astar_msgs（既存のカスタムメッセージ）
+  
+  [1-2] CMakeLists.txt を更新
+        - find_package() で必要なパッケージを指定
+        - pure_pursuit_controller ノードのビルド設定を追加
+        - インストール設定
+
+■ステップ2: ヘッダーファイルの作成
+  [2-1] include/simple_nav/PurePursuitController.hpp を作成
+  
+  [2-2] クラス設計
+        - クラス名: PurePursuitController
+        - 継承: rclcpp::Node
+        - 状態管理: enum class State { IDLE, PLANNING, NAVIGATING }
+  
+  [2-3] メンバ変数の定義
+        【パブリッシャー】
+        - cmd_vel_pub_ (geometry_msgs::Twist)
+        - current_path_pub_ (nav_msgs::Path) ※可視化用
+        - lookahead_point_pub_ (geometry_msgs::PointStamped) ※可視化用
+        
+        【サブスクライバー】
+        - goal_pose_sub_ (geometry_msgs::PoseStamped)
+        
+        【サービスクライアント】
+        - get_path_client_ (value_iteration2_astar_msgs::srv::GetPath)
+        
+        【TF関連】
+        - tf_buffer_ (tf2_ros::Buffer)
+        - tf_listener_ (tf2_ros::TransformListener)
+        
+        【タイマー】
+        - control_timer_ (rclcpp::TimerBase)
+        
+        【状態管理】
+        - current_state_ (State)
+        - current_path_ (nav_msgs::Path)
+        - current_goal_ (geometry_msgs::PoseStamped)
+        
+        【パラメータ】
+        - lookahead_distance_ (double)
+        - target_linear_velocity_ (double)
+        - control_frequency_ (double)
+        - goal_tolerance_dist_ (double)
+        - path_service_name_ (string)
+        - map_frame_ (string)
+        - robot_base_frame_ (string)
+  
+  [2-4] メンバ関数の宣言
+        【初期化】
+        - コンストラクタ
+        - declareParameters(): パラメータ宣言
+        - loadParameters(): パラメータ読み込み
+        - setupPublishers(): パブリッシャー初期化
+        - setupSubscribers(): サブスクライバー初期化
+        - setupServiceClient(): サービスクライアント初期化
+        - setupTimer(): 制御タイマー初期化
+        
+        【コールバック】
+        - goalPoseCallback(): /goal_pose 受信時の処理
+        - controlTimerCallback(): 制御ループの処理
+        - pathServiceCallback(): /get_path サービス応答の処理
+        
+        【TF関連】
+        - getCurrentPose(): 現在のロボット位置を取得
+        - transformPointToRobotFrame(): 点をロボット座標系に変換
+        
+        【Pure Pursuit アルゴリズム】
+        - findLookaheadPoint(): 先行点を探索
+        - calculateCurvature(): 曲率を計算
+        - computeVelocityCommand(): 速度指令を計算
+        
+        【制御フロー】
+        - callPathService(): 経路計画サービスを呼び出し
+        - checkGoalReached(): ゴール到達判定
+        - stopRobot(): ロボットを停止
+        - publishVisualization(): 可視化データを配信
+
+■ステップ3: ソースファイルの実装
+  [3-1] src/PurePursuitController.cpp を作成
+  
+  [3-2] コンストラクタの実装
+        - ノード名: "pure_pursuit_controller"
+        - 各初期化関数の呼び出し順序:
+          1. declareParameters()
+          2. loadParameters()
+          3. TF buffer & listener 初期化
+          4. setupPublishers()
+          5. setupSubscribers()
+          6. setupServiceClient()
+          7. setupTimer()
+        - 初期状態を IDLE に設定
+  
+  [3-3] パラメータ関連の実装
+        - declareParameters(): declare_parameter() で各パラメータを宣言
+        - loadParameters(): get_parameter() で値を読み込み
+  
+  [3-4] 初期化関数の実装
+        - setupPublishers():
+          * "/cmd_vel" パブリッシャー作成 (QoS: 10)
+          * "/current_path" パブリッシャー作成 (QoS: 1)
+          * "/lookahead_point" パブリッシャー作成 (QoS: 1)
+        
+        - setupSubscribers():
+          * "/goal_pose" サブスクライバー作成
+          * コールバック: goalPoseCallback
+        
+        - setupServiceClient():
+          * path_service_name_ でサービスクライアント作成
+        
+        - setupTimer():
+          * control_frequency_ に基づいてタイマー作成
+          * コールバック: controlTimerCallback
+  
+  [3-5] goalPoseCallback の実装
+        【処理フロー】
+        1. 受信したゴール地点を current_goal_ に保存
+        2. 状態を PLANNING に変更
+        3. ログ出力: "Goal pose received"
+        4. TF から現在位置を取得 (getCurrentPose)
+           - 失敗時: エラーログ出力 → IDLE 状態に戻る → return
+        5. callPathService() を呼び出し
+  
+  [3-6] getCurrentPose の実装
+        【処理フロー】
+        1. tf_buffer_->lookupTransform() で map -> base_link の変換を取得
+           - タイムアウト: 1秒
+        2. transform を PoseStamped に変換
+        3. 成功: true を返す
+        4. 失敗（tf2::TransformException）: 
+           - エラーログ出力
+           - false を返す
+  
+  [3-7] callPathService の実装
+        【処理フロー】
+        1. サービスが利用可能か確認
+           - wait_for_service() でタイムアウト 5秒
+           - 失敗時: エラーログ → IDLE 状態 → return
+        2. リクエスト作成
+           - request->start: 現在位置
+           - request->goal: current_goal_
+        3. async_send_request() で非同期呼び出し
+           - コールバック: pathServiceCallback
+  
+  [3-8] pathServiceCallback の実装
+        【処理フロー】
+        1. future.get() で結果を取得
+        2. response->path が空か確認
+           - 空の場合: エラーログ → IDLE 状態 → return
+        3. current_path_ に経路を保存
+        4. 状態を NAVIGATING に変更
+        5. ログ出力: "Path received, starting navigation"
+  
+  [3-9] controlTimerCallback の実装
+        【処理フロー】
+        1. 状態チェック
+           - IDLE または PLANNING: stopRobot() → return
+        
+        2. 現在位置取得
+           - getCurrentPose() 呼び出し
+           - 失敗時: stopRobot() → return
+        
+        3. ゴール到達判定
+           - checkGoalReached() 呼び出し
+           - 到達した場合:
+             * stopRobot()
+             * current_path_.poses.clear()
+             * IDLE 状態に変更
+             * ログ出力: "Goal Reached"
+             * return
+        
+        4. Pure Pursuit 計算（NAVIGATING 状態）
+           a. findLookaheadPoint() で先行点を探索
+              - 見つからない場合: stopRobot() → return
+           
+           b. transformPointToRobotFrame() で先行点をロボット座標系に変換
+              - 失敗時: stopRobot() → return
+           
+           c. computeVelocityCommand() で速度指令を計算
+           
+           d. cmd_vel を配信
+        
+        5. 可視化データの配信（オプション）
+           - publishVisualization()
+  
+  [3-10] findLookaheadPoint の実装
+        【処理フロー】
+        1. 経路が空か確認 → 空なら false を返す
+        2. 現在位置を取得
+        3. 経路上の各点について距離を計算
+        4. lookahead_distance_ に最も近い点を探索
+           - 許容誤差: ±0.1m 程度
+        5. 見つかった点を出力パラメータに設定
+        6. 見つからない場合: 経路の最終点を返す
+        7. true を返す
+  
+  [3-11] transformPointToRobotFrame の実装
+        【処理フロー】
+        1. PointStamped メッセージを作成（map フレーム）
+        2. tf_buffer_->transform() でロボット座標系に変換
+        3. 成功: 変換した点を出力パラメータに設定 → true を返す
+        4. 失敗: エラーログ → false を返す
+  
+  [3-12] computeVelocityCommand の実装
+        【処理フロー】
+        1. ロボット座標系の先行点 (xt, yt) を取得
+        2. 距離 L を計算: L = sqrt(xt^2 + yt^2)
+        3. 曲率 κ を計算: κ = 2 * yt / L^2
+        4. 並進速度: v = target_linear_velocity_
+        5. 角速度: ω = v * κ
+        6. Twist メッセージを作成
+           - linear.x = v
+           - angular.z = ω
+        7. Twist を返す
+  
+  [3-13] checkGoalReached の実装
+        【処理フロー】
+        1. 経路が空か確認 → 空なら false
+        2. 経路の最終点を取得
+        3. 現在位置との距離を計算（X, Y のみ）
+        4. 距離 < goal_tolerance_dist_ なら true、そうでなければ false
+  
+  [3-14] stopRobot の実装
+        【処理フロー】
+        1. Twist メッセージを作成（すべて0）
+        2. cmd_vel_pub_ で配信
+  
+  [3-15] publishVisualization の実装
+        【処理フロー】
+        1. current_path_ を /current_path で配信
+        2. lookahead_point を /lookahead_point で配信
+  
+  [3-16] main 関数の実装
+        【処理フロー】
+        1. rclcpp::init(argc, argv)
+        2. PurePursuitController ノードを作成
+        3. rclcpp::spin(node)
+        4. rclcpp::shutdown()
+        5. return 0
+
+■ステップ4: ビルド設定の更新
+  [4-1] CMakeLists.txt の編集
+        【追加内容】
+        1. find_package() セクション
+           - rclcpp
+           - geometry_msgs
+           - nav_msgs
+           - tf2
+           - tf2_ros
+           - tf2_geometry_msgs
+           - value_iteration2_astar_msgs
+        
+        2. include_directories()
+           - ${CMAKE_CURRENT_SOURCE_DIR}/include
+        
+        3. add_executable() で pure_pursuit_controller を追加
+           - src/PurePursuitController.cpp
+        
+        4. ament_target_dependencies() で依存関係を追加
+        
+        5. install(TARGETS) で実行ファイルをインストール
+        
+        6. install(DIRECTORY) でヘッダーファイルをインストール
+  
+  [4-2] package.xml の編集
+        【追加内容】
+        1. <depend> タグで依存関係を追加
+           - rclcpp
+           - geometry_msgs
+           - nav_msgs
+           - tf2
+           - tf2_ros
+           - tf2_geometry_msgs
+           - value_iteration2_astar_msgs
+
+■ステップ5: ビルドとテスト準備
+  [5-1] ビルドコマンドの実行
+        - cd /home/keitaro/cursor_ws/test_ws
+        - colcon build --packages-select simple_nav
+        - source install/setup.bash
+  
+  [5-2] 構文エラーとリンクエラーの確認
+        - コンパイルエラーが出た場合は修正
+        - 依存関係の不足があれば追加
+  
+  [5-3] ノードの起動確認
+        - ros2 run simple_nav pure_pursuit_controller
+        - パラメータが正しく読み込まれるか確認
+        - トピック・サービスが正しく作成されるか確認
+
+
+【6. 実装の優先順位】
+---
+高優先度（必須機能）:
+  1. 基本的なノード構造とROS 2インターフェース
+  2. TF取得機能
+  3. サービス呼び出し（非同期）
+  4. Pure Pursuitアルゴリズムの実装
+  5. 制御ループとゴール到達判定
+
+中優先度（重要だが後回し可能）:
+  6. エラーハンドリングの充実
+  7. 可視化機能
+
+低優先度（オプション）:
+  8. パラメータの動的再設定
+  9. 詳細なログ出力
+
+
+【7. 必要なツールとリソース】
+---
+- ROS 2 Humble 開発環境
+- C++17 コンパイラ (g++)
+- colcon ビルドツール
+- value_iteration2_astar_msgs パッケージ（既存）
+- TFツリーを提供するノード（テスト時に必要）
+- 経路計画サービスノード（既存の vi_planner）
+
+
+【8. 実装時の注意事項】
+---
+1. 非同期処理とスレッドセーフ
+   - サービスコールバックと制御ループは別スレッドで動作する可能性
+   - current_path_ や current_state_ へのアクセスに注意
+   - 必要に応じて std::mutex を使用
+
+2. TFのタイムスタンプ
+   - tf2::TimePointZero を使用して最新の変換を取得
+   - タイムアウト設定を適切に
+
+3. 座標系の一貫性
+   - map フレームと base_link フレームの変換を正確に
+   - 経路の frame_id を確認
+
+4. Pure Pursuitの数値安定性
+   - yt が 0 に近い場合の処理
+   - L が 0 に近い場合の処理
+   - 曲率の最大値制限（オプション）
+
+5. ゴール近傍での制御
+   - 先行点が見つからない場合の処理
+   - 最終点への収束を確実に
+
+
+【9. 検証項目（実装後）】
+---
+- [ ] ノードが正常に起動するか
+- [ ] パラメータが正しく読み込まれるか
+- [ ] /goal_pose トピックを購読できるか
+- [ ] TFから現在位置を取得できるか
+- [ ] /get_path サービスを呼び出せるか
+- [ ] 経路に沿って移動するか
+- [ ] ゴールに到達して停止するか
+- [ ] 可視化トピックが配信されるか
+- [ ] エラー時に適切に処理されるか
+
+
+【10. 今後の拡張可能性】
+---
+- 動的障害物回避機能の追加
+- 速度の動的調整（カーブで減速など）
+- 経路の再計画機能
+- パラメータの動的再設定機能
+- より高度な経路追従アルゴリズム（MPC等）
+
+
+================================================================================
+以上
+================================================================================
+

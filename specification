@@ -1,0 +1,209 @@
+ROS 2 Pure Pursuit コントローラー仕様書
+
+1. 概要
+
+本パッケージは、ROS 2 Humble上で動作する差動2輪ロボットのための、Pure Pursuit（純粋追跡）アルゴリズムに基づいた経路追従コントローラーである。
+
+    ノード名: pure_pursuit_controller (提案)
+
+    目的:
+
+        目標ゴール地点 (/goal_pose) を受信する。
+
+        現在のロボットの位置（TFの map -> base_link 変換）をstart、受信したゴール地点をgoalとして経路計画サービス (/get_path) を呼び出し、追従すべき経路 (nav_msgs/Path) を取得する。
+
+        取得した経路とロボットの現在位置（TF）に基づき、Pure Pursuitアルゴリズムを用いて目標速度 (cmd_vel) を計算し、配信する。
+
+2. インターフェース
+
+2.1 購読 (Subscribers)
+
+    /goal_pose
+
+        Type: geometry_msgs/PoseStamped
+
+        Description: 追従の最終目標地点。このメッセージを受信すると、経路計画サービスが呼び出され、新しい追従プロセスが開始される。
+
+    /tf (内部的にTF2ライブラリが購読)
+
+        Type: tf2_msgs/TFMessage
+
+        Description: ノードはTF2ライブラリのリスナー（tf2_ros::TransformListener）を使用し、mapフレームからbase_linkフレームへの座標変換（ロボットの現在位置）を継続的に取得する。
+
+2.2 配信 (Publishers)
+
+    /cmd_vel
+
+        Type: geometry_msgs/Twist
+
+        Description: ロボットの差動ドライブベースへの速度指令値。linear.x（並進速度）とangular.z（角速度）が使用される。
+
+2.3 サービスクライアント (Clients)
+
+    /get_path (ノード内で使用するクライアント名)
+
+        Type: value_iteration2_astar_msgs::srv::GetPath
+
+        Description: 経路計画サービス。start（現在位置）とgoal（目標位置）を送信し、path（nav_msgs/Path）を受信する。
+
+2.4 可視化用トピック (オプション)
+
+    /current_path
+
+        Type: nav_msgs/Path
+
+        Description: 現在追従中の経路をRvizなどで可視化するために配信する。
+
+    /lookahead_point
+
+        Type: geometry_msgs/PointStamped
+
+        Description: Pure Pursuitアルゴリズムが現在ターゲットとしている先行点（Lookahead Point）を可視化するために配信する。
+
+3. パラメータ (Parameters)
+
+ノード起動時に設定可能なROSパラメータ。
+
+    lookahead_distance (float, default: 0.5 [m]):
+
+        ロボットが追跡する経路上の先行点までの距離。
+
+    target_linear_velocity (float, default: 0.3 [m/s]):
+
+        経路追従時の目標並進速度。
+
+    control_frequency (float, default: 20.0 [Hz]):
+
+        制御ループ（cmd_velを計算・配信する）の実行周波数。
+
+    goal_tolerance_dist (float, default: 0.1 [m]):
+
+        ゴール地点に到達したとみなす距離の許容誤差（X, Y座標のみで判定）。
+
+    path_service_name (string, default: "/get_path"):
+
+        呼び出す経路計画サービスのサービス名。
+
+    map_frame (string, default: "map"):
+
+        グローバルな基準となる座標系名。
+
+    robot_base_frame (string, default: "base_link"):
+
+        ロボットの基準となる座標系名。
+
+4. 動作仕様
+
+4.1 状態定義
+
+ノードは以下の内部状態を持つ。
+
+    IDLE (待機): ゴールが設定されておらず、cmd_velに(0, 0)を配信している状態。
+
+    PLANNING (計画中): /goal_poseを受信し、/get_pathサービスを呼び出し中の状態。
+
+    NAVIGATING (追従中): 経路を取得し、Pure Pursuitによる経路追従を実行中の状態。
+
+4.2 動作フロー
+
+1. 初期化 (Initialization)
+
+    ノードが起動すると、状態はIDLEとなる。
+
+    パラメータをロードする。
+
+    Subscriber, Publisher, Service Clientを初期化する。
+
+    TF2リスナーとバッファを初期化する。
+
+    control_frequencyに基づいた制御ループタイマーを開始する。
+
+2. ゴール受信 (/goal_pose コールバック)
+
+    /goal_poseメッセージを受信する。
+
+    状態をPLANNINGに変更する。
+
+    **TFリスナー（バッファ）**から、最新のロボットの現在位置（map_frame -> robot_base_frameの変換）を取得する。
+
+        注意: TFが一定時間取得できていない場合は、エラーをログ出力し、IDLE状態に戻る。
+
+    value_iteration2_astar_msgs::srv::GetPathサービスリクエストを作成する。
+
+        request.start: 現在のロボットのPoseStamped（TFから生成）
+
+        request.goal: 受信したgoal_pose
+
+    /get_pathサービスを非同期で呼び出す。
+
+3. 経路計画完了 (サービスコールバック)
+
+    サービス呼び出しが成功し、有効な経路 (response.path) が返ってきた場合:
+
+        受信したpathを内部変数に保存する。
+
+        状態をNAVIGATINGに変更する。
+
+    サービス呼び出しが失敗した場合 (経路が見つからない等):
+
+        エラーをログ出力する。
+
+        状態をIDLEに戻す。
+
+4. 制御ループ (タイマーコールバック)
+
+    このループはcontrol_frequencyで定期的に実行される。
+
+    状態チェック:
+
+        状態がIDLEまたはPLANNINGの場合: cmd_velに(0, 0)を配信し、処理を終了する。
+
+    現在位置取得:
+
+        TFリスナーから最新のロボットの現在位置（map_frame -> robot_base_frameの変換）を取得する。
+
+    ゴール判定:
+
+        ロボットの現在位置（X, Y座標）が、保存されている経路の最終地点（X, Y座標）からgoal_tolerance_dist以内にあるか判定する。
+
+        到達した場合:
+
+            cmd_velに(0, 0)を配信する。
+
+            内部の経路をクリアする。
+
+            状態をIDLEに変更する。
+
+            「Goal Reached」とログ出力し、処理を終了する。
+
+    Pure Pursuit 計算 (NAVIGATING 状態):
+
+        a. 先行点の探索:
+
+            保存された経路 (nav_msgs/Path) 上の点で、現在のロボット位置からlookahead_distanceに最も近い点（またはlookahead_distanceだけ離れた点）を探索し、target_pointとする。
+
+        b. 座標変換:
+
+            target_point（map_frame基準）をロボットのローカル座標系（robot_base_frame）に変換する（TF2を使用）。変換後の座標を (xt​,yt​) とする。
+
+        c. 曲率の計算:
+
+            ロボットがtarget_pointに向かうために必要な円弧の曲率 κ (カッパ) を計算する。
+
+            κ=Ld2​2⋅yt​​ (ここで Ld​ は lookahead_distance またはロボットからtarget_pointまでの実距離 L=xt2​+yt2​​ )
+
+        d. 速度指令の決定:
+
+            並進速度 v=target_linear_velocity
+
+            角速度 ω=v⋅κ
+
+        e. cmd_velの配信:
+
+            geometry_msgs/Twist メッセージを作成し、linear.x = v, angular.z = \omega として /cmd_vel トピックに配信する。
+
+5. 前提条件・依存関係
+
+    TF: map_frame -> robot_base_frame のTFツリーが正しくブロードキャストされている必要がある。（例: map -> odom -> base_link）
+
+    経路計画サービス: value_iteration2_astar_msgs::srv::GetPathを提供するノードが実行中である必要がある。

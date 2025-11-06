@@ -207,3 +207,5 @@ ROS 2 Pure Pursuit コントローラー仕様書
     TF: map_frame -> robot_base_frame のTFツリーが正しくブロードキャストされている必要がある。（例: map -> odom -> base_link）
 
     経路計画サービス: value_iteration2_astar_msgs::srv::GetPathを提供するノードが実行中である必要がある。
+
+©Keitaro Nakamura

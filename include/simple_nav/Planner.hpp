@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2025 Keitaro Nakamura
+// SPDX-License-Identifier: MIT License
+
 
 #ifndef A_STAR_PLANNER_HPP__
 #define A_STAR_PLANNER_HPP__

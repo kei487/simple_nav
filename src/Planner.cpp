@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2025 Keitaro Nakamura
+// SPDX-License-Identifier: MIT License
 
 #include "simple_nav/Planner.hpp"
 

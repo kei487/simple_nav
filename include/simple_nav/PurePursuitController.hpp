@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2025 Keitaro Nakamura
+// SPDX-License-Identifier: MIT License
+
 
 #ifndef PURE_PURSUIT_CONTROLLER_HPP__
 #define PURE_PURSUIT_CONTROLLER_HPP__

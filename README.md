@@ -9,20 +9,13 @@ ROS 2 Humbleで動作する差動2輪ロボット用の経路計画/経路追従
 1. **Pure Pursuit Controller** (`pure_pursuit_controller`) - 経路追従コントローラー
 2. **A\* Path Planner** (`a_star_planner`) - A\*ベースの経路計画ノード
 
-## Quick use
-```bash
-cd /path/to/your/workspace
-colcon build --packages-select simple_nav value_iteration2_astar_msgs
-source install/setup.bash
-```
-
-
 ## Pure Pursuit Controller
 
 ### 機能
 
+- Pure Pursuitアルゴリズムで経路を追従
 - ゴール地点を受信すると、経路計画サービスを呼び出して経路を取得
-- Pure Pursuitアルゴリズムで経路を追従する速度指令値を出力
+- 経路と現在地点から速度指令値を算出
 
 ### インターフェース
 

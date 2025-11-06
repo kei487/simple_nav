@@ -9,14 +9,20 @@ ROS 2 Humbleで動作する差動2輪ロボット用の経路計画/経路追従
 1. **Pure Pursuit Controller** (`pure_pursuit_controller`) - 経路追従コントローラー
 2. **A\* Path Planner** (`a_star_planner`) - A\*ベースの経路計画ノード
 
+## Quick use
+```bash
+cd /path/to/your/workspace
+colcon build --packages-select simple_nav value_iteration2_astar_msgs
+source install/setup.bash
+```
+
+
 ## Pure Pursuit Controller
 
 ### 機能
 
 - ゴール地点を受信すると、経路計画サービスを呼び出して経路を取得
-- Pure Pursuitアルゴリズムで経路を追従
-- TF2を使用してロボットの現在位置を取得
-- RVizでの可視化に対応
+- Pure Pursuitアルゴリズムで経路を追従する速度指令値を出力
 
 ### インターフェース
 
@@ -25,7 +31,7 @@ ROS 2 Humbleで動作する差動2輪ロボット用の経路計画/経路追従
 | トピック名 | メッセージ型 | 説明 |
 |-----------|------------|------|
 | `/goal_pose` | `geometry_msgs/PoseStamped` | 目標地点 |
-| `/tf` | `tf2_msgs/TFMessage` | 座標変換（TF2が内部的に購読） |
+| `/tf` | `tf2_msgs/TFMessage` | グローバル座標系からロボット座標系までtreeが繋がっている必要有り |
 
 #### 配信トピック
 
@@ -61,9 +67,49 @@ ROS 2 Humbleで動作する差動2輪ロボット用の経路計画/経路追従
 - **PLANNING（計画中）**: 経路計画サービスを呼び出し中。
 - **NAVIGATING（追従中）**: 経路に沿って追従制御を実行中。
 
-## ビルド方法
+## A\* Path Planner
+
+### 機能
+
+- A\*アルゴリズムで経路計画を行う
+
+### インターフェース
+#### 購読トピック
+
+| トピック名 | メッセージ型 | 説明 |
+|-----------|------------|------|
+| `/costmap_2d` | `nav_msgs/OccupancyGrid` | 探索マップ |
+
+#### 配信トピック
+
+| トピック名 | メッセージ型 | 説明 |
+|-----------|------------|------|
+| `/plan_path` | `nav_msgs/Path` | 探索経路（可視化用） |
+| `/Planner_searched_map` | `nav_msgs/OccupancyGrid` | 探索済みマップ（可視化用） |
+
+#### サービスサーバー
+
+| サービス名 | サービス型 | 説明 |
+|-----------|-----------|------|
+| `/get_path` | `value_iteration2_astar_msgs/srv/GetPath` | 経路計画サービス |
+
+### パラメータ
+
+| パラメータ名 | 型 | デフォルト値 | 説明 |
+|------------|------|-----------|------|
+| `use_dijkstra` | bool | false | ダイクストラ法で経路計画を行うか |
+| `publish_searched_map` | bool | false | デバック用 |
+| `update_path_weight` | double | 0.05 |  |
+| `smooth_path_weight` | double | 0.8 |  |
+| `iteration_delta_threshold` | double | 1.0e-6 |  |
+
+## インストール&ビルド方法
 
 ```bash
+cd /path/to/your/workspace
+cd src
+git clone https://github.com/kei487/simple_nav.git
+git clone https://github.com/kei487/value_iteration2_astar_msgs.git
 cd /path/to/your/workspace
 colcon build --packages-select simple_nav
 source install/setup.bash
@@ -71,85 +117,9 @@ source install/setup.bash
 
 ## 実行方法
 
-### 1. A* Path Plannerの起動
-
-まず、経路計画ノードを起動します：
-
 ```bash
-ros2 run simple_nav a_star_planner
+ros2 launch simple_nav simple_nav.launch.py
 ```
-
-このノードは以下が必要です：
-- `/costmap_2d` トピック（OccupancyGrid）から地図情報を受信
-- `/get_path` サービスで経路計画を提供
-
-### 2. Pure Pursuit Controllerの起動
-
-次に、経路追従コントローラーを起動します：
-
-```bash
-ros2 run simple_nav pure_pursuit_controller
-```
-
-### 3. パラメータをカスタマイズして起動
-
-```bash
-ros2 run simple_nav pure_pursuit_controller --ros-args \
-  -p lookahead_distance:=0.8 \
-  -p target_linear_velocity:=0.5 \
-  -p control_frequency:=30.0
-```
-
-### 4. パラメータファイルを使用して起動
-
-パラメータファイル `config/pure_pursuit_params.yaml` を作成：
-
-```yaml
-pure_pursuit_controller:
-  ros__parameters:
-    lookahead_distance: 0.8
-    target_linear_velocity: 0.5
-    control_frequency: 30.0
-    goal_tolerance_dist: 0.15
-    path_service_name: "/get_path"
-    map_frame: "map"
-    robot_base_frame: "base_link"
-```
-
-起動：
-
-```bash
-ros2 run simple_nav pure_pursuit_controller --ros-args \
-  --params-file config/pure_pursuit_params.yaml
-```
-
-## 使用例
-
-### ゴール地点を送信
-
-```bash
-ros2 topic pub /goal_pose geometry_msgs/PoseStamped "{
-  header: {frame_id: 'map'},
-  pose: {
-    position: {x: 5.0, y: 3.0, z: 0.0},
-    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
-  }
-}"
-```
-
-### 速度指令を確認
-
-```bash
-ros2 topic echo /cmd_vel
-```
-
-### 可視化（RViz）
-
-RVizで以下のトピックを追加して可視化できます：
-
-- `/current_path` - 追従中の経路（Path）
-- `/lookahead_point` - 先行点（PointStamped）
-- `/tf` - TF表示
 
 ## 前提条件
 
@@ -160,10 +130,6 @@ RVizで以下のトピックを追加して可視化できます：
 ```
 map -> odom -> base_link
 ```
-
-### 必要なサービス
-
-経路計画サービス（`/get_path`）を提供するノードが実行されている必要があります。
 
 ## アルゴリズム
 
@@ -180,7 +146,7 @@ map -> odom -> base_link
 
 ### ロボットが動かない
 
-- TFが正しく配信されているか確認: `ros2 run tf2_tools view_frames`
+- TFが正しく配信されているか確認: `ros2 run rqt_tf_tree rqt_tf_tree`
 - 経路計画サービスが起動しているか確認: `ros2 service list | grep get_path`
 - ゴール地点が送信されているか確認: `ros2 topic echo /goal_pose`
 
@@ -197,8 +163,6 @@ map -> odom -> base_link
 
 ## ライセンス
 
-Apache-2.0
+MIT License
 
-## 作成者
-
-keitaro (numerugon487@gmail.com)
+©Keitaro Nakamura (numerugon487@gmail.com)

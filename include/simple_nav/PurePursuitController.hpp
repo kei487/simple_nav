@@ -10,6 +10,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -93,6 +94,12 @@ private:
    * @param msg Goal pose message
    */
   void goalPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+
+  /**
+   * @brief Callback for scan topic
+   * @param msg scan message
+   */
+  void scanCallback(const sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
 
   /**
    * @brief Control loop callback (called periodically)
@@ -183,6 +190,7 @@ private:
 
   // Subscribers
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
 
   // Service client
   rclcpp::Client<value_iteration2_astar_msgs::srv::GetPath>::SharedPtr get_path_client_;
@@ -202,14 +210,22 @@ private:
   // Mutex for thread safety
   std::mutex state_mutex_;
 
+  //obstacle avoidance
+  double avoidance_vel_liner;
+  double avoidance_vel_angle;
+
   // Parameters
   double lookahead_distance_;
   double target_linear_velocity_;
+  double max_angular_vel_;
   double control_frequency_;
   double goal_tolerance_dist_;
   std::string path_service_name_;
   std::string map_frame_;
   std::string robot_base_frame_;
+  bool use_obstacle_avoidance_;
+  double obstacle_detect_radius_;
+  double obstacle_detect_angle_;
 };
 
 }  // namespace simple_nav

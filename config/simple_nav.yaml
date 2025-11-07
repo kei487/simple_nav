@@ -10,14 +10,14 @@
 a_star_planner:
   ros__parameters:
     # Algorithm selection
-    use_dijkstra: false  # Set to true to use Dijkstra instead of A*
+    use_dijkstra: false                # Set to true to use Dijkstra instead of A*
     
     # Visualization
-    publish_searched_map: false  # Publish the searched map for debugging
+    publish_searched_map: false        # Publish the searched map for debugging
     
     # Path smoothing parameters
-    update_path_weight: 0.05      # Weight for updating path towards original
-    smooth_path_weight: 0.8       # Weight for smoothing (higher = smoother)
+    update_path_weight: 0.05           # Weight for updating path towards original
+    smooth_path_weight: 0.8            # Weight for smoothing (higher = smoother)
     iteration_delta_threshold: 1.0e-6  # Convergence threshold for smoothing
     
     # Simulation time
@@ -29,6 +29,7 @@ pure_pursuit_controller:
     # Pure Pursuit algorithm parameters
     lookahead_distance: 0.5        # [m] Distance to lookahead point
     target_linear_velocity: 0.5    # [m/s] Target forward velocity
+    max_angular_vel: 0.2           # [rad/s] Max angler velocity
     
     # Control loop
     control_frequency: 20.0        # [Hz] Control loop frequency
@@ -37,45 +38,16 @@ pure_pursuit_controller:
     goal_tolerance_dist: 0.1       # [m] Distance to consider goal reached
     
     # Service and topic names
-    path_service_name: "/get_path"  # Name of path planning service
+    path_service_name: "/get_path" # Name of path planning service
     
     # Frame IDs
     map_frame: "map"               # Global reference frame
     robot_base_frame: "base_link"  # Robot base frame
+
+    # Obstacle Avoidance
+    use_obstacle_avoidance: true   # Set to true to use obstacle avoidance
+    obstacle_detect_radius: 0.2    # [m] Detetion distance from robot
+    obstacle_detect_angle: 0.4     # [rad] Detection angle range from front of robot
     
     # Simulation time
     use_sim_time: true
-
-# Example configurations for different scenarios:
-
-# High-speed navigation (use with caution):
-# pure_pursuit_controller:
-#   ros__parameters:
-#     lookahead_distance: 0.8
-#     target_linear_velocity: 0.6
-#     control_frequency: 30.0
-
-# Precise navigation (slower but more accurate):
-# pure_pursuit_controller:
-#   ros__parameters:
-#     lookahead_distance: 0.3
-#     target_linear_velocity: 0.2
-#     goal_tolerance_dist: 0.05
-
-# Large robot configuration:
-# pure_pursuit_controller:
-#   ros__parameters:
-#     lookahead_distance: 1.0
-#     target_linear_velocity: 0.4
-#     goal_tolerance_dist: 0.2
-
-# Simulation configuration:
-# a_star_planner:
-#   ros__parameters:
-#     use_sim_time: true
-#     publish_searched_map: true
-# 
-# pure_pursuit_controller:
-#   ros__parameters:
-#     use_sim_time: true
-

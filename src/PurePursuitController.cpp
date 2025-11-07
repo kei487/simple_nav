@@ -42,31 +42,43 @@ void PurePursuitController::declareParameters()
 {
   this->declare_parameter("lookahead_distance", 0.5);
   this->declare_parameter("target_linear_velocity", 0.3);
+  this->declare_parameter("max_angular_vel", 0.4);
   this->declare_parameter("control_frequency", 20.0);
   this->declare_parameter("goal_tolerance_dist", 0.1);
   this->declare_parameter("path_service_name", "/get_path");
   this->declare_parameter("map_frame", "map");
   this->declare_parameter("robot_base_frame", "base_link");
+  this->declare_parameter("use_obstacle_avoidance", false);
+  this->declare_parameter("obstacle_detect_radius", 0.5);
+  this->declare_parameter("obstacle_detect_angle", 0.8);
 }
 
 void PurePursuitController::loadParameters()
 {
   this->get_parameter("lookahead_distance", lookahead_distance_);
   this->get_parameter("target_linear_velocity", target_linear_velocity_);
+  this->get_parameter("max_angular_vel", max_angular_vel_);
   this->get_parameter("control_frequency", control_frequency_);
   this->get_parameter("goal_tolerance_dist", goal_tolerance_dist_);
   this->get_parameter("path_service_name", path_service_name_);
   this->get_parameter("map_frame", map_frame_);
   this->get_parameter("robot_base_frame", robot_base_frame_);
+  this->get_parameter("use_obstacle_avoidance", use_obstacle_avoidance_);
+  this->get_parameter("obstacle_detect_radius", obstacle_detect_radius_);
+  this->get_parameter("obstacle_detect_angle", obstacle_detect_angle_);
 
   RCLCPP_INFO(this->get_logger(), "Parameters loaded:");
   RCLCPP_INFO(this->get_logger(), "  lookahead_distance: %.2f m", lookahead_distance_);
   RCLCPP_INFO(this->get_logger(), "  target_linear_velocity: %.2f m/s", target_linear_velocity_);
+  RCLCPP_INFO(this->get_logger(), "  max_angular_vel: %.2f m/s", max_angular_vel_);
   RCLCPP_INFO(this->get_logger(), "  control_frequency: %.1f Hz", control_frequency_);
   RCLCPP_INFO(this->get_logger(), "  goal_tolerance_dist: %.2f m", goal_tolerance_dist_);
   RCLCPP_INFO(this->get_logger(), "  path_service_name: %s", path_service_name_.c_str());
   RCLCPP_INFO(this->get_logger(), "  map_frame: %s", map_frame_.c_str());
   RCLCPP_INFO(this->get_logger(), "  robot_base_frame: %s", robot_base_frame_.c_str());
+  RCLCPP_INFO(this->get_logger(), "  use_obstacle_avoidance: %s", (use_obstacle_avoidance_ ? "true" : "false"));
+  RCLCPP_INFO(this->get_logger(), "  obstacle_detect_radius: %.1f Hz", obstacle_detect_radius_);
+  RCLCPP_INFO(this->get_logger(), "  obstacle_detect_angle: %.1f Hz", obstacle_detect_angle_);
 }
 
 void PurePursuitController::setupPublishers()
@@ -89,6 +101,10 @@ void PurePursuitController::setupSubscribers()
     "/goal_pose", 10,
     std::bind(&PurePursuitController::goalPoseCallback, this, std::placeholders::_1));
 
+  scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+    "/scan", 10,
+    std::bind(&PurePursuitController::scanCallback, this, std::placeholders::_1));
+  
   RCLCPP_INFO(this->get_logger(), "Subscribers created");
 }
 
@@ -138,6 +154,44 @@ void PurePursuitController::goalPoseCallback(const geometry_msgs::msg::PoseStamp
 
   // Call path service
   callPathService(current_pose, current_goal_);
+}
+
+void PurePursuitController::scanCallback(const sensor_msgs::msg::LaserScan::ConstSharedPtr msg){
+  
+  if(!use_obstacle_avoidance_) return;
+
+  size_t num_ranges = msg->ranges.size();
+  size_t angle_range = obstacle_detect_angle_/msg->angle_increment;
+  size_t middle_index = num_ranges / 2;
+  double delta = 1.0e-6,liner_vector = 0,angle_vector = 0;
+  double theta;
+  double k_l = 0.01,k_w = 0.1;
+
+  for (size_t i = middle_index - angle_range; 
+    i < middle_index + angle_range; ++i)
+  {
+      float distance = msg->ranges[i];
+      // 信頼できる範囲内かチェック
+      if (distance > msg->range_min && distance < msg->range_max)
+      {
+          if (distance < obstacle_detect_radius_)
+          {
+            theta = (middle_index-i)*msg->angle_increment;
+            liner_vector += cos(theta)/(distance+delta);
+            angle_vector += 1/(theta+delta);
+          }
+      }
+  }
+
+  avoidance_vel_liner = -1*k_l * liner_vector;
+  avoidance_vel_angle = k_w * angle_vector;
+
+  // RCLCPP_INFO(this->get_logger(),
+  //     "\nAvoidance velocity:\n"
+  //     "  liner %.2f m/s\n"
+  //     "  angler %.2f rad/s\n",
+  //     avoidance_vel_liner, avoidance_vel_angle
+  // );
 }
 
 void PurePursuitController::controlTimerCallback()
@@ -348,10 +402,18 @@ geometry_msgs::msg::Twist PurePursuitController::computeVelocityCommand(
   cmd_vel.linear.x = target_linear_velocity_;
   cmd_vel.angular.z = target_linear_velocity_ * curvature;
 
+  if(use_obstacle_avoidance_){
+    cmd_vel.linear.x += avoidance_vel_liner;
+    cmd_vel.angular.z += avoidance_vel_angle;
+    
+    if (cmd_vel.linear.x < -0.8 * target_linear_velocity_) {
+      cmd_vel.linear.x = -0.8 * target_linear_velocity_;
+    }
+  }
+
   // Limit angular velocity (safety)
-  const double max_angular_vel = 2.0;  // rad/s
-  if (std::abs(cmd_vel.angular.z) > max_angular_vel) {
-    cmd_vel.angular.z = std::copysign(max_angular_vel, cmd_vel.angular.z);
+  if (std::abs(cmd_vel.angular.z) > max_angular_vel_) {
+    cmd_vel.angular.z = std::copysign(max_angular_vel_, cmd_vel.angular.z);
   }
 
   return cmd_vel;
